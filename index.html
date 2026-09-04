@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart Car Controller</title>
+    <style>
+        /* বেসিক সেটআপ এবং ফ্লেক্সবক্স দিয়ে সিরিয়াল মেইনটেইন */
+        body {
+            font-family: 'San Francisco', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { color: #00ffcc; font-size: 22px; margin-bottom: 15px; text-align: center; }
+
+        /* ১. ব্লুটুথ কানেক্ট সেকশন */
+        .connect-section {
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #connectBtn {
+            background-color: #00ffcc;
+            color: #121212;
+            border: none;
+            padding: 14px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(0, 255, 204, 0.3);
+            transition: transform 0.1s;
+        }
+        #connectBtn:active { transform: scale(0.98); }
+        #status { margin-top: 10px; font-size: 14px; font-weight: bold; color: #ff4d4d; }
+
+        /* ২. ক্যামেরা সেকশন (রেস্পন্সিভ) */
+        .camera-container {
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 4/3; /* যেকোনো স্ক্রিনে পারফেক্ট সাইজ ধরে রাখবে */
+            position: relative;
+            border-radius: 12px;
+            border: 2px solid #333;
+            overflow: hidden;
+            background-color: #000;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        video, canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            transform: scaleX(-1); /* মিরর ইফেক্ট */
+            object-fit: cover;
+        }
+        video { z-index: 5; }
+        canvas { z-index: 10; }
+
+        /* ৩. ড্রাইভার কন্ট্রোল সেকশন */
+        .controls-section {
+            width: 100%;
+            max-width: 400px;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 12px;
+            box-sizing: border-box;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .section-title { 
+            color: #aaa; font-size: 13px; margin-bottom: 15px; 
+            text-transform: uppercase; letter-spacing: 1px; text-align: center; font-weight: bold;
+        }
+
+        /* D-Pad স্টাইল (গাড়ির মুভমেন্ট) */
+        .d-pad {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .control-btn {
+            background: #2a2a2a; color: white;
+            border: 1px solid #444; 
+            border-radius: 8px; font-size: 16px; font-weight: bold;
+            padding: 15px 0;
+            cursor: pointer;
+            transition: 0.1s;
+        }
+        .control-btn:active { background: #555; }
+        
+        /* বাটনের পজিশন */
+        #btnF { grid-column: 2; }
+        #btnL { grid-column: 1; }
+        #btnS { grid-column: 2; background: #3a0000; color: #ff4d4d; border-color: #ff4d4d; }
+        #btnS:active { background: #ff4d4d; color: white; }
+        #btnR { grid-column: 3; }
+        #btnB { grid-column: 2; }
+
+        /* লাইট এবং ভোল্টেজ স্টাইল */
+        .light-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .light-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            font-size: 14px; font-weight: bold;
+            cursor: pointer;
+        }
+        .light-on-btn { background: #2b2b00; border-color: #ffd700; color: #ffd700; }
+        .light-on-btn:active { background: #ffd700; color: black; }
+        .light-off-btn { background: #2a2a2a; color: white; }
+        
+        .slider-container { text-align: left; margin-top: 10px; }
+        .slider-container label { font-size: 14px; color: #ccc; font-weight: bold; display: block; margin-bottom: 10px; }
+        input[type=range] { width: 100%; cursor: pointer; }
+
+    </style>
+    <!-- MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<!-- 🔒 Face ID Lock Screen -->
+    <div id="lockScreen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 999; display: flex; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(10px);">
+        <h1 style="color: #ff4d4d; font-size: 30px;">🔒 Car is Locked</h1>
+        <p style="color: #aaa; margin-bottom: 30px;">Verify identity to access controls</p>
+        <button id="unlockBtn" style="background: #00ffcc; color: #000; padding: 15px 40px; font-size: 18px; font-weight: bold; border-radius: 30px; border: none; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 255, 204, 0.4);">
+            Face ID Unlock
+        </button>
+    </div>
+    <h1>🚀 Smart Car Dashboard</h1>
+    
+    <!-- ১. কানেক্ট সেকশন -->
+    <div class="connect-section">
+        <button id="connectBtn">Connect Bluetooth</button>
+        <div id="status">Status: Disconnected</div>
+    </div>
+
+    <!-- ২. ক্যামেরা সেকশন -->
+    <div class="camera-container">
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="canvasElement"></canvas>
+    </div>
+
+    <!-- ৩. ড্রাইভার কন্ট্রোল সেকশন -->
+    <div class="controls-section">
+        
+        <div class="section-title">Drive Controls</div>
+        
+        <!-- জয়স্টিক স্টাইল D-Pad -->
+        <div class="d-pad">
+            <button class="control-btn" id="btnF">F</button>
+            <button class="control-btn" id="btnL">L</button>
+            <button class="control-btn" id="btnS">STOP</button>
+            <button class="control-btn" id="btnR">R</button>
+            <button class="control-btn" id="btnB">B</button>
+        </div>
+
+        <hr style="border-color: #333; margin: 20px 0;">
+
+        <div class="section-title">Flashlight & Voltage</div>
+        
+        <!-- লাইট অন/অফ -->
+        <div class="light-controls">
+            <button class="light-btn light-on-btn" id="btnLightOn">Light ON</button>
+            <button class="light-btn light-off-btn" id="btnLightOff">Light OFF</button>
+        </div>
+        
+        <!-- ভোল্টেজ/ব্রাইটনেস স্লাইডার -->
+        <div class="slider-container">
+            <label for="lightSlider">Brightness (PWM): <span id="sliderValue" style="color: #00ffcc;">0</span></label>
+            <input type="range" id="lightSlider" min="0" max="255" value="0">
+        </div>
+
+    </div>
+
+<!-- এক্সটার্নাল জাভাস্ক্রিপ্ট ফাইল লিংক করা হলো -->
+    <script src="script.js"></script>
+</body>
+</html>
