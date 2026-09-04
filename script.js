@@ -3,58 +3,32 @@ const TELEGRAM_BOT_TOKEN = "8795724835:AAE-xYFohqnPckaSKdrMygLBiruFJMN3Eow";
 const TELEGRAM_CHAT_ID = "5199115006";
 
 function sendTelegramAlert(baseMessage) {
-    // আগে এখানে কোনো timeout ছিল না, তাই GPS ফিক্স না পেলে
-    // getCurrentPosition() চিরকাল আটকে থাকতো আর টেলিগ্রাম মেসেজ কখনোই যেত না।
-    // ফিক্স: নির্দিষ্ট timeout + একটা fallback timer, যাতে GPS না পেলেও অ্যালার্ট ঠিকই যায়।
-    let alreadySent = false;
-    const sendOnce = (message) => {
-        if (alreadySent) return;
-        alreadySent = true;
-        sendTelegramMessage(message);
-    };
-
-    // সেফটি নেট: ৫ সেকেন্ডের মধ্যে GPS রেসপন্স না পেলে লোকেশন ছাড়াই অ্যালার্ট পাঠাও
-    const fallbackTimer = setTimeout(() => {
-        sendOnce(`${baseMessage}\n📍 Location: Unavailable (Timeout)`);
-    }, 5000);
-
-    try {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    clearTimeout(fallbackTimer);
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const googleMapsLink = `https://www.google.com/maps?q=${lat},${lon}`;
-                    sendOnce(`${baseMessage}\n📍 Location: ${googleMapsLink}`);
-                },
-                (error) => {
-                    clearTimeout(fallbackTimer);
-                    console.log("Location access denied.", error);
-                    sendOnce(`${baseMessage}\n📍 Location: Unavailable (Permission Denied)`);
-                },
-                { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
-            );
-        } else {
-            clearTimeout(fallbackTimer);
-            sendOnce(baseMessage);
-        }
-    } catch (err) {
-        // কিছু ব্রাউজার/পলিসি সেটআপে getCurrentPosition() সরাসরি throw করতে পারে
-        clearTimeout(fallbackTimer);
-        console.error("Geolocation threw synchronously:", err);
-        sendOnce(`${baseMessage}\n📍 Location: Unavailable (Error)`);
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const googleMapsLink = `https://www.google.com/maps?q=${lat},${lon}`;
+                const fullMessage = `${baseMessage}\n📍 Location: ${googleMapsLink}`;
+                
+                sendTelegramMessage(fullMessage);
+            },
+            (error) => {
+                console.log("Location access denied.");
+                const fallbackMessage = `${baseMessage}\n📍 Location: Unavailable (Permission Denied)`;
+                sendTelegramMessage(fallbackMessage);
+            }
+        );
+    } else {
+        sendTelegramMessage(baseMessage);
     }
 }
 
 function sendTelegramMessage(text) {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    // ব্রাউজার সিকিউরিটি (CORS) এড়াতে GET রিকোয়েস্ট ব্যবহার করা হলো
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(text)}`;
     
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text })
-    })
+    fetch(url)
     .then(response => console.log("Telegram Alert Sent Successfully!"))
     .catch(error => console.error("Telegram Failed:", error));
 }
@@ -76,7 +50,6 @@ document.getElementById('unlockBtn').addEventListener('click', async () => {
         };
         await navigator.credentials.create({ publicKey });
         
-        // আনলক সফল হলে লক স্ক্রিন সরিয়ে দাও
         document.getElementById('lockScreen').style.display = 'none'; 
     } catch (err) {
         console.error("Face ID Error:", err);
@@ -106,7 +79,7 @@ connectBtn.addEventListener('click', async () => {
             optionalServices: [SERVICE_UUID]
         });
 
-        // 🚨 গাড়ি অফ/ডিসকানেক্ট হলে
+        // গাড়ি অফ/ডিসকানেক্ট হলে
         device.addEventListener('gattserverdisconnected', () => {
             isConnected = false;
             statusDiv.innerText = "Status: Disconnected!";
@@ -121,7 +94,7 @@ connectBtn.addEventListener('click', async () => {
         rxCharacteristic = await service.getCharacteristic(RX_UUID);
         const txCharacteristic = await service.getCharacteristic(TX_UUID);
 
-        // 🚨 গাড়ি আটকে গেলে (STUCK)
+        // গাড়ি আটকে গেলে (STUCK)
         await txCharacteristic.startNotifications();
         txCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
             const value = new TextDecoder().decode(e.target.value);
@@ -201,47 +174,11 @@ const videoElement = document.getElementById('videoElement');
 const canvasElement = document.getElementById('canvasElement');
 const canvasCtx = canvasElement.getContext('2d');
 
-// --- জেসচার স্ট্যাবিলিটি (ডিবাউন্স) ---
-// আগে প্রতি ফ্রেমেই সাথে সাথে কমান্ড পাঠানো হতো, ফলে সামান্য misread হলেই (বিশেষ করে
-// "Backward"-এর ৩-আঙুল পোজ, যেটা স্থির রাখা কঠিন) কমান্ড ফ্লিকার করতো। এখন একটানা কয়েক
-// ফ্রেম একই জেসচার দেখলে তবেই কমান্ড পাঠানো হবে।
-let pendingGesture = null;
-let pendingGestureCount = 0;
-const GESTURE_CONFIRM_FRAMES = 4;
-
-// হাত ফ্রেম থেকে সরে গেলে সেফটির জন্য অটো-স্টপ
-let noHandFrames = 0;
-const NO_HAND_STOP_FRAMES = 15; // ~0.5s ক্যামেরা ফ্রেমরেটে
-
-function confirmAndSend(gesture) {
-    if (gesture === pendingGesture) {
-        pendingGestureCount++;
-    } else {
-        pendingGesture = gesture;
-        pendingGestureCount = 1;
-    }
-    if (pendingGestureCount !== GESTURE_CONFIRM_FRAMES) return;
-
-    // আগে ক্যামেরা জেসচার দিয়ে লাইট অন/অফ করার কোনো লজিকই ছিলো না, শুধু বাটন দিয়ে হতো।
-    if (gesture === "LIGHT_ON") {
-        document.getElementById('lightSlider').value = 255;
-        document.getElementById('sliderValue').innerText = 255;
-        sendCommand("255");
-    } else if (gesture === "LIGHT_OFF") {
-        document.getElementById('lightSlider').value = 0;
-        document.getElementById('sliderValue').innerText = 0;
-        sendCommand("0");
-    } else {
-        sendCommand(gesture);
-    }
-}
-
 function onResults(results) {
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        noHandFrames = 0;
         const landmarks = results.multiHandLandmarks[0];
         
         drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 2});
@@ -251,35 +188,34 @@ function onResults(results) {
         const isMiddleUp = landmarks[12].y < landmarks[10].y;
         const isRingUp = landmarks[16].y < landmarks[14].y;
         const isPinkyUp = landmarks[20].y < landmarks[18].y;
-        const isThumbUp = landmarks[4].y < landmarks[3].y && landmarks[4].y < landmarks[2].y;
 
-        let fingersUpCount = isIndexUp + isMiddleUp + isRingUp + isPinkyUp;
-
-        let gesture = null;
-        if (fingersUpCount === 4) {
-            gesture = "F";
-        } else if (fingersUpCount === 0 && isThumbUp) {
-            gesture = "LIGHT_ON";      // 👍 বন্ধ মুষ্টি + বৃদ্ধাঙ্গুলি উঁচু = Light ON
-        } else if (fingersUpCount === 0) {
-            gesture = "S";
-        } else if (fingersUpCount === 2 && isIndexUp && isMiddleUp) {
-            gesture = "R";
-        } else if (fingersUpCount === 1 && isPinkyUp) {
-            gesture = "LIGHT_OFF";     // শুধু কনিষ্ঠা আঙুল উঁচু = Light OFF
-        } else if (fingersUpCount === 1 && isIndexUp) {
-            gesture = "L";
-        } else if (fingersUpCount === 3) {
-            gesture = "B";
-        }
-
-        if (gesture) confirmAndSend(gesture);
-    } else {
-        // হাত দেখা যাচ্ছে না — কিছুক্ষণ পরও না দেখলে নিরাপত্তার জন্য গাড়ি থামিয়ে দাও
-        pendingGesture = null;
-        pendingGestureCount = 0;
-        noHandFrames++;
-        if (noHandFrames === NO_HAND_STOP_FRAMES) {
-            sendCommand("S");
+        // আপডেট করা জেসচার লজিক
+        if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
+            sendCommand("F"); // ৪ আঙুল = সামনে
+        } 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("S"); // মুষ্টিবদ্ধ = স্টপ
+        } 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
+            sendCommand("B"); // শুধু পিংকি = পিছনে
+        } 
+        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("L"); // শুধু তর্জনী = বামে
+        } 
+        else if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("R"); // ২ আঙুল (V সাইন) = ডানে
+        } 
+        else if (isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
+            // 🤘 তর্জনী + পিংকি = লাইট অন
+            document.getElementById('lightSlider').value = 255;
+            document.getElementById('sliderValue').innerText = 255;
+            sendCommand("255");
+        } 
+        else if (isIndexUp && isMiddleUp && isRingUp && !isPinkyUp) { 
+            // ৩ আঙুল = লাইট অফ
+            document.getElementById('lightSlider').value = 0;
+            document.getElementById('sliderValue').innerText = 0;
+            sendCommand("0");
         }
     }
     canvasCtx.restore();
