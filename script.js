@@ -115,9 +115,13 @@ connectBtn.addEventListener('click', async () => {
     }
 });
 
-async function sendCommand(cmd) {
+async function sendCommand(cmd, force = false) {
     if (!isConnected || !rxCharacteristic) return;
-    if (cmd === lastCommand) return; 
+    // মুভমেন্ট কমান্ড (F/B/L/R/S) সবসময় ফোর্স করে পাঠানো হয়,
+    // কারণ ESP32 তে গাড়ি বাধার (obstacle) কারণে F_BLOCKED/B_BLOCKED
+    // অবস্থায় আটকে গেলে, একই "F"/"B" কমান্ড আবার পাঠালেই সেটা রিকভার হয়।
+    // dedup চেক থাকলে পুনরায় একই বাটনে চাপ দিলে কমান্ড আসলে পাঠানোই হতো না।
+    if (!force && cmd === lastCommand) return; 
     try {
         const encoder = new TextEncoder();
         await rxCharacteristic.writeValue(encoder.encode(cmd));
@@ -131,8 +135,10 @@ async function sendCommand(cmd) {
 const bindButton = (id, cmd) => {
     const btn = document.getElementById(id);
     if(btn) {
-        btn.addEventListener('mousedown', () => sendCommand(cmd));
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCommand(cmd); });
+        // force = true, যাতে বাধা কেটে যাওয়ার পর একই বাটনে আবার চাপ দিলেও
+        // কমান্ড ESP32 তে পৌঁছায় এবং গাড়ি আবার চলা শুরু করে
+        btn.addEventListener('mousedown', () => sendCommand(cmd, true));
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCommand(cmd, true); });
     }
 };
 
