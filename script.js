@@ -227,15 +227,27 @@ function onResults(results) {
         const isRingUp = landmarks[16].y < landmarks[14].y;
         const isPinkyUp = landmarks[20].y < landmarks[18].y;
 
+        // থাম্ব-ইনডেক্স দূরত্ব একবারই বের করে নেওয়া হলো (F বনাম লাইট-কন্ট্রোল আলাদা করার জন্য)
+        const thumbIndexDistance = Math.hypot(
+            landmarks[4].x - landmarks[8].x,
+            landmarks[4].y - landmarks[8].y
+        );
+        // এর বেশি দূরত্ব হলে সত্যিকারের "হাত পুরো খোলা" (F) ধরা হবে, কম হলে পিঞ্চ/লাইট-কন্ট্রোল
+        const LIGHT_MODE_MAX_DIST = 0.4;
+
         // আপডেট করা জেসচার লজিক
-        // 👌 OK-sign: মিডল+রিং+পিংকি সোজা, ইনডেক্স বাঁকানো (থাম্বের দিকে) = লাইট কন্ট্রোল মোড
-        // (এই কম্বিনেশনটা আগে কোনো কমান্ডের জন্য ব্যবহার হতো না, তাই F/S/B/L/R এর সাথে কনফ্লিক্ট করে না)
-        if (!isIndexUp && isMiddleUp && isRingUp && isPinkyUp) {
-            const lightValue = getDistanceValue(landmarks);
-            updateLightFromGesture(lightValue);
-        }
-        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
-            sendCommand("F"); // ৪ আঙুল = সামনে
+        // 👌 OK-sign শেপ: মিডল+রিং+পিংকি সোজা। ইনডেক্স up/down আলাদা করে চেক করা হচ্ছে না,
+        // কারণ পিঞ্চ করার সময় ইনডেক্সের টিপ প্রায়ই এখনো "up" হিসেবেই ধরা পড়ে (পাশে বাঁকে, নিচে না)।
+        // তার বদলে থাম্ব-ইনডেক্স দূরত্ব দিয়েই ঠিক করা হচ্ছে এটা F নাকি লাইট-কন্ট্রোল।
+        if (isMiddleUp && isRingUp && isPinkyUp) {
+            if (thumbIndexDistance <= LIGHT_MODE_MAX_DIST) {
+                // থাম্ব ও ইনডেক্স কাছাকাছি/মাঝারি দূরত্বে = পিঞ্চ করে লাইট কন্ট্রোল করা হচ্ছে
+                const lightValue = getDistanceValue(landmarks);
+                updateLightFromGesture(lightValue);
+            } else {
+                // থাম্ব ইনডেক্স থেকে অনেক দূরে = হাত সত্যিকারভাবে পুরোপুরি খোলা = সামনে যাওয়া
+                sendCommand("F"); // ৪ আঙুল = সামনে
+            }
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
             sendCommand("S"); // মুষ্টিবদ্ধ = স্টপ
