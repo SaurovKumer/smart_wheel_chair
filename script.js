@@ -148,65 +148,7 @@ bindButton('btnL', 'L');
 bindButton('btnR', 'R');
 bindButton('btnS', 'S');
 
-const btnLightOn = document.getElementById('btnLightOn');
-if(btnLightOn) {
-    btnLightOn.onclick = () => {
-        document.getElementById('lightSlider').value = 255;
-        document.getElementById('sliderValue').innerText = 255;
-        sendCommand("255");
-    };
-}
-
-const btnLightOff = document.getElementById('btnLightOff');
-if(btnLightOff) {
-    btnLightOff.onclick = () => {
-        document.getElementById('lightSlider').value = 0;
-        document.getElementById('sliderValue').innerText = 0;
-        sendCommand("0");
-    };
-}
-
-const lightSlider = document.getElementById('lightSlider');
-if(lightSlider) {
-    lightSlider.oninput = (e) => {
-        const val = e.target.value;
-        document.getElementById('sliderValue').innerText = val;
-        sendCommand(val);
-    };
-}
-
 // --- ৫. ক্যামেরা এবং MediaPipe জেসচার লজিক ---
-
-// থাম্ব (৪) ও ইনডেক্স টিপ (৮) এর মধ্যে দূরত্ব থেকে 0-255 ব্রাইটনেস ভ্যালু বের করা
-function getDistanceValue(landmarks) {
-    const thumbTip = landmarks[4];
-    const indexTip = landmarks[8];
-    const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-
-    const MIN_DIST = 0.05;
-    const MAX_DIST = 0.35;
-    let value = Math.round((distance - MIN_DIST) / (MAX_DIST - MIN_DIST) * 255);
-
-    if (value < 0) value = 0;
-    else if (value > 255) value = 255;
-    return value;
-}
-
-// পিঞ্চ (থাম্ব+ইনডেক্স) জেসচার থেকে পাওয়া ভ্যালু দিয়ে স্লাইডার UI ও গাড়ির লাইট আপডেট করা
-let lastGestureLightValue = -1;
-const LIGHT_CHANGE_THRESHOLD = 4; // এর চেয়ে কম পরিবর্তন হলে নতুন কমান্ড পাঠানো হবে না (BLE flooding এড়াতে)
-
-function updateLightFromGesture(value) {
-    const slider = document.getElementById('lightSlider');
-    const sliderValueEl = document.getElementById('sliderValue');
-    if (slider) slider.value = value;
-    if (sliderValueEl) sliderValueEl.innerText = value;
-
-    if (Math.abs(value - lastGestureLightValue) < LIGHT_CHANGE_THRESHOLD) return;
-    lastGestureLightValue = value;
-
-    sendCommand(String(value));
-}
 
 const videoElement = document.getElementById('videoElement');
 const canvasElement = document.getElementById('canvasElement');
@@ -226,26 +168,24 @@ function onResults(results) {
         const isMiddleUp = landmarks[12].y < landmarks[10].y;
         const isRingUp = landmarks[16].y < landmarks[14].y;
         const isPinkyUp = landmarks[20].y < landmarks[18].y;
-        // থাম্ব তার নিজের IP জয়েন্টের চেয়ে উপরে আছে কিনা (থাম্ব সোজা উপরে তোলা)
-        const isThumbUp = landmarks[4].y < landmarks[3].y;
-
-        // আপডেট করা জেসচার লজিক
-        // 👍 বাকি ৪ আঙুল (index, middle, ring, pinky) মুঠোয় বন্ধ, শুধু থাম্ব উপরে তোলা = লাইট কন্ট্রোল মোড
-        // থাম্ব-ইনডেক্স ফাঁক বড় → লাইট উজ্জ্বল (ON), ফাঁক ছোট → লাইট বন্ধ (OFF), মাঝামাঝি → কম উজ্জ্বল
+        const isThumbUp = landmarks[4].y < landmarks[3].y && landmarks[4].y < landmarks[2].y;
+        const isThumbDown = landmarks[4].y > landmarks[3].y && landmarks[4].y > landmarks[2].y;
         if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && isThumbUp) {
-            const lightValue = getDistanceValue(landmarks);
-            updateLightFromGesture(lightValue);
+            sendCommand("255"); // থাম্বস আপ = লাইট অন
         }
-        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp && isThumbUp) { 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && isThumbDown) {
+            sendCommand("0"); // থাম্বস ডাউন = লাইট অফ
+        }
+        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
             sendCommand("F"); // ৪ আঙুল = সামনে
         } 
-        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && !isThumbUp) { 
-            sendCommand("S"); // থাম্বও গুটানো, পুরোপুরি মুষ্টিবদ্ধ = স্টপ
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("S"); // পুরোপুরি মুষ্টিবদ্ধ = স্টপ
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
             sendCommand("B"); // শুধু পিংকি = পিছনে
         } 
-        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && !isThumbUp) { 
+        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
             sendCommand("L"); // শুধু তর্জনী = বামে
         } 
         else if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) { 
