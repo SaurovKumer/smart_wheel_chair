@@ -126,7 +126,6 @@ async function sendCommand(cmd, force = false) {
         const encoder = new TextEncoder();
         await rxCharacteristic.writeValue(encoder.encode(cmd));
         lastCommand = cmd;
-        console.log("[BLE SENT] cmd =", cmd, "| force =", force); // টেস্টিং এর জন্য
     } catch (error) {
         console.log("Send Error:", error);
     }
@@ -149,147 +148,51 @@ bindButton('btnL', 'L');
 bindButton('btnR', 'R');
 bindButton('btnS', 'S');
 
-const btnLightOn = document.getElementById('btnLightOn');
-if(btnLightOn) {
-    btnLightOn.onclick = () => {
-        document.getElementById('lightSlider').value = 255;
-        document.getElementById('sliderValue').innerText = 255;
-        sendCommand("255");
-    };
-}
-
-const btnLightOff = document.getElementById('btnLightOff');
-if(btnLightOff) {
-    btnLightOff.onclick = () => {
-        document.getElementById('lightSlider').value = 0;
-        document.getElementById('sliderValue').innerText = 0;
-        sendCommand("0");
-    };
-}
-
-const lightSlider = document.getElementById('lightSlider');
-if(lightSlider) {
-    lightSlider.oninput = (e) => {
-        const val = e.target.value;
-        document.getElementById('sliderValue').innerText = val;
-        sendCommand(val);
-    };
-}
-
-// --- ৫. ক্যামেরা এবং MediaPipe জেসচার লজিক (Python কোডের এক্সাক্ট লজিক অনুযায়ী) ---
-
-// থাম্ব (৪) ও ইনডেক্স টিপ (৮) এর মধ্যে দূরত্ব থেকে 0-255 ব্রাইটনেস ভ্যালু বের করা
-// (MIN_DIST, MAX_DIST — Python কোডের মতোই একই মান)
-function getDistanceValue(landmarks) {
-    const thumbTip = landmarks[4];
-    const indexTip = landmarks[8];
-    const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-
-    const MIN_DIST = 0.05;
-    const MAX_DIST = 0.35;
-    // Python এর int() zero এর দিকে truncate করে, তাই Math.round নয়, Math.trunc ব্যবহার হলো
-    let value = Math.trunc((distance - MIN_DIST) / (MAX_DIST - MIN_DIST) * 255);
-
-    if (value < 0) value = 0;
-    else if (value > 255) value = 255;
-    return value;
-}
-
-// প্রতিটা আঙুল উপরে তোলা কিনা বের করা — Python এর tip_ids = [4, 8, 12, 16, 20] লজিক অনুযায়ী
-// রিটার্ন করে [thumb, index, middle, ring, pinky], প্রতিটা 1 (up) অথবা 0 (down)
-function getFingersUp(landmarks) {
-    const tipIds = [4, 8, 12, 16, 20];
-    const fingersUp = [];
-
-    // থাম্ব: x কোঅর্ডিনেট কম্পেয়ার (থাম্ব সাইডওয়েজ নড়ে, তাই y নয় x ব্যবহার হয়)
-    if (landmarks[tipIds[0]].x < landmarks[tipIds[0] - 1].x) {
-        fingersUp.push(1);
-    } else {
-        fingersUp.push(0);
-    }
-
-    // বাকি ৪ আঙুল: y কোঅর্ডিনেট কম্পেয়ার
-    for (let i = 1; i < 5; i++) {
-        if (landmarks[tipIds[i]].y < landmarks[tipIds[i] - 2].y) {
-            fingersUp.push(1);
-        } else {
-            fingersUp.push(0);
-        }
-    }
-
-    return fingersUp;
-}
-
-// আঙুলের অবস্থা থেকে গেসচার বের করা — Python এর get_gesture() ফাংশনের এক্সাক্ট লজিক
-function getGesture(landmarks) {
-    const fingersUp = getFingersUp(landmarks); // [thumb, index, middle, ring, pinky]
-    const totalFingers = fingersUp.reduce((a, b) => a + b, 0);
-
-    // টেস্টিং এর জন্য: প্রতি ফ্রেমে আঙুলের অবস্থা দেখতে চাইলে নিচের লাইনটা আনকমেন্ট করুন
-    // console.log("[FINGERS]", fingersUp, "| total =", totalFingers);
-
-    let gesture = null;
-    if (totalFingers === 5) gesture = 'F';
-    else if (totalFingers === 0) gesture = 'S';
-    else if (fingersUp[1] === 1 && totalFingers === 1) gesture = 'R';  // শুধু ইনডেক্স আপ = ডানে
-    else if (fingersUp[2] === 1 && totalFingers === 1) gesture = 'L';  // শুধু মিডল আপ = বামে
-    else if (fingersUp[2] === 1 && fingersUp[1] === 1 && totalFingers === 2) gesture = 'L'; // ইনডেক্স+মিডল (V সাইন) = বামে
-    else if (fingersUp[4] === 1 && totalFingers === 1) gesture = 'B';  // শুধু পিংকি আপ = পিছনে
-    else if (fingersUp[0] === 1 && fingersUp[1] === 1 && fingersUp[2] === 0 && fingersUp[3] === 0 && fingersUp[4] === 0) gesture = 'D'; // থাম্ব+ইনডেক্স = লাইট কন্ট্রোল
-
-    console.log("[GESTURE]", gesture, "| fingersUp =", fingersUp); // টেস্টিং এর জন্য
-    return gesture;
-}
+// --- ৫. ক্যামেরা এবং MediaPipe জেসচার লজিক ---
 
 const videoElement = document.getElementById('videoElement');
 const canvasElement = document.getElementById('canvasElement');
 const canvasCtx = canvasElement.getContext('2d');
 
-// Python এর send_interval = 0.5 (সেকেন্ড) এর সমতুল্য — প্রতি ০.৫ সেকেন্ডে সর্বোচ্চ একবার কমান্ড পাঠানো হবে
-const SEND_INTERVAL_MS = 500;
-let lastSentTime = 0;
-
 function onResults(results) {
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-    let finalCommand = null;
-
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const landmarks = results.multiHandLandmarks[0];
-
+        
         drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00ffcc', lineWidth: 2});
         drawLandmarks(canvasCtx, landmarks, {color: '#ff0000', lineWidth: 1});
 
-        const gesture = getGesture(landmarks);
-
-        if (gesture === 'D') {
-            const distanceValue = getDistanceValue(landmarks);
-            finalCommand = String(distanceValue);
-            console.log("[LIGHT] distanceValue =", distanceValue); // টেস্টিং এর জন্য
-
-            // স্লাইডার UI প্রতি ফ্রেমেই লাইভ আপডেট হবে (visual feedback), যদিও BLE তে পাঠানো হয় থ্রটল করে
-            const slider = document.getElementById('lightSlider');
-            const sliderValueEl = document.getElementById('sliderValue');
-            if (slider) slider.value = distanceValue;
-            if (sliderValueEl) sliderValueEl.innerText = distanceValue;
-        } else {
-            finalCommand = gesture; // null ও হতে পারে (কোনো পরিচিত gesture না মিললে)
+        const isIndexUp = landmarks[8].y < landmarks[6].y;
+        const isMiddleUp = landmarks[12].y < landmarks[10].y;
+        const isRingUp = landmarks[16].y < landmarks[14].y;
+        const isPinkyUp = landmarks[20].y < landmarks[18].y;
+        // const isThumbUp = landmarks[4].y < landmarks[3].y && landmarks[4].y < landmarks[2].y;
+        // const isThumbDown = landmarks[4].y > landmarks[3].y && landmarks[4].y > landmarks[2].y;
+        // if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && isThumbUp) {
+        //     sendCommand("255"); // থাম্বস আপ = লাইট অন
+        // }
+        // else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && isThumbDown) {
+        //     sendCommand("0"); // থাম্বস ডাউন = লাইট অফ
+        // }
+        // else 
+        if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
+            sendCommand("F"); // ৪ আঙুল = সামনে
+        } 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("S"); // পুরোপুরি মুষ্টিবদ্ধ = স্টপ
+        } 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
+            sendCommand("B"); // শুধু পিংকি = পিছনে
+        } 
+        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("L"); // শুধু তর্জনী = বামে
+        } 
+        else if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) { 
+            sendCommand("R"); // ২ আঙুল (V সাইন) = ডানে
         }
-    } else {
-        console.log("[HAND] কোনো হাত শনাক্ত হয়নি"); // টেস্টিং এর জন্য
     }
-
-    // Python কোডের মতোই: শুধু ইন্টারভাল পার হলে পাঠানো হবে, content dedup চেক করা হচ্ছে না
-    // (তাই একই কমান্ড ধরে রাখলে প্রতি ০.৫ সেকেন্ডে আবার পাঠানো হবে — F_BLOCKED/B_BLOCKED থেকে রিকভার করতেও এটা সাহায্য করবে)
-    const now = Date.now();
-    if (finalCommand !== null && (now - lastSentTime > SEND_INTERVAL_MS)) {
-        sendCommand(finalCommand, true);
-        lastSentTime = now;
-    } else if (finalCommand !== null) {
-        console.log("[THROTTLED] skip sending, cmd =", finalCommand, "| ms since last send =", now - lastSentTime); // টেস্টিং এর জন্য
-    }
-
     canvasCtx.restore();
 }
 
