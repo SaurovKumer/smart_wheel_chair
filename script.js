@@ -176,6 +176,38 @@ if(lightSlider) {
 }
 
 // --- ৫. ক্যামেরা এবং MediaPipe জেসচার লজিক ---
+
+// থাম্ব (৪) ও ইনডেক্স টিপ (৮) এর মধ্যে দূরত্ব থেকে 0-255 ব্রাইটনেস ভ্যালু বের করা
+function getDistanceValue(landmarks) {
+    const thumbTip = landmarks[4];
+    const indexTip = landmarks[8];
+    const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+
+    const MIN_DIST = 0.05;
+    const MAX_DIST = 0.35;
+    let value = Math.round((distance - MIN_DIST) / (MAX_DIST - MIN_DIST) * 255);
+
+    if (value < 0) value = 0;
+    else if (value > 255) value = 255;
+    return value;
+}
+
+// পিঞ্চ (থাম্ব+ইনডেক্স) জেসচার থেকে পাওয়া ভ্যালু দিয়ে স্লাইডার UI ও গাড়ির লাইট আপডেট করা
+let lastGestureLightValue = -1;
+const LIGHT_CHANGE_THRESHOLD = 4; // এর চেয়ে কম পরিবর্তন হলে নতুন কমান্ড পাঠানো হবে না (BLE flooding এড়াতে)
+
+function updateLightFromGesture(value) {
+    const slider = document.getElementById('lightSlider');
+    const sliderValueEl = document.getElementById('sliderValue');
+    if (slider) slider.value = value;
+    if (sliderValueEl) sliderValueEl.innerText = value;
+
+    if (Math.abs(value - lastGestureLightValue) < LIGHT_CHANGE_THRESHOLD) return;
+    lastGestureLightValue = value;
+
+    sendCommand(String(value));
+}
+
 const videoElement = document.getElementById('videoElement');
 const canvasElement = document.getElementById('canvasElement');
 const canvasCtx = canvasElement.getContext('2d');
@@ -196,7 +228,13 @@ function onResults(results) {
         const isPinkyUp = landmarks[20].y < landmarks[18].y;
 
         // আপডেট করা জেসচার লজিক
-        if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
+        // 👌 OK-sign: মিডল+রিং+পিংকি সোজা, ইনডেক্স বাঁকানো (থাম্বের দিকে) = লাইট কন্ট্রোল মোড
+        // (এই কম্বিনেশনটা আগে কোনো কমান্ডের জন্য ব্যবহার হতো না, তাই F/S/B/L/R এর সাথে কনফ্লিক্ট করে না)
+        if (!isIndexUp && isMiddleUp && isRingUp && isPinkyUp) {
+            const lightValue = getDistanceValue(landmarks);
+            updateLightFromGesture(lightValue);
+        }
+        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
             sendCommand("F"); // ৪ আঙুল = সামনে
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
@@ -210,18 +248,6 @@ function onResults(results) {
         } 
         else if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) { 
             sendCommand("R"); // ২ আঙুল (V সাইন) = ডানে
-        } 
-        else if (isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
-            // 🤘 তর্জনী + পিংকি = লাইট অন
-            document.getElementById('lightSlider').value = 255;
-            document.getElementById('sliderValue').innerText = 255;
-            sendCommand("255");
-        } 
-        else if (isIndexUp && isMiddleUp && isRingUp && !isPinkyUp) { 
-            // ৩ আঙুল = লাইট অফ
-            document.getElementById('lightSlider').value = 0;
-            document.getElementById('sliderValue').innerText = 0;
-            sendCommand("0");
         }
     }
     canvasCtx.restore();
