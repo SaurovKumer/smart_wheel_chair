@@ -226,31 +226,21 @@ function onResults(results) {
         const isMiddleUp = landmarks[12].y < landmarks[10].y;
         const isRingUp = landmarks[16].y < landmarks[14].y;
         const isPinkyUp = landmarks[20].y < landmarks[18].y;
-
-        // থাম্ব-ইনডেক্স দূরত্ব একবারই বের করে নেওয়া হলো (F বনাম লাইট-কন্ট্রোল আলাদা করার জন্য)
-        const thumbIndexDistance = Math.hypot(
-            landmarks[4].x - landmarks[8].x,
-            landmarks[4].y - landmarks[8].y
-        );
-        // এর বেশি দূরত্ব হলে সত্যিকারের "হাত পুরো খোলা" (F) ধরা হবে, কম হলে পিঞ্চ/লাইট-কন্ট্রোল
-        const LIGHT_MODE_MAX_DIST = 0.4;
+        // থাম্ব তার নিজের IP জয়েন্টের চেয়ে উপরে আছে কিনা (থাম্ব সোজা উপরে তোলা)
+        const isThumbUp = landmarks[4].y < landmarks[3].y;
 
         // আপডেট করা জেসচার লজিক
-        // 👌 OK-sign শেপ: মিডল+রিং+পিংকি সোজা। ইনডেক্স up/down আলাদা করে চেক করা হচ্ছে না,
-        // কারণ পিঞ্চ করার সময় ইনডেক্সের টিপ প্রায়ই এখনো "up" হিসেবেই ধরা পড়ে (পাশে বাঁকে, নিচে না)।
-        // তার বদলে থাম্ব-ইনডেক্স দূরত্ব দিয়েই ঠিক করা হচ্ছে এটা F নাকি লাইট-কন্ট্রোল।
-        if (isMiddleUp && isRingUp && isPinkyUp) {
-            if (thumbIndexDistance <= LIGHT_MODE_MAX_DIST) {
-                // থাম্ব ও ইনডেক্স কাছাকাছি/মাঝারি দূরত্বে = পিঞ্চ করে লাইট কন্ট্রোল করা হচ্ছে
-                const lightValue = getDistanceValue(landmarks);
-                updateLightFromGesture(lightValue);
-            } else {
-                // থাম্ব ইনডেক্স থেকে অনেক দূরে = হাত সত্যিকারভাবে পুরোপুরি খোলা = সামনে যাওয়া
-                sendCommand("F"); // ৪ আঙুল = সামনে
-            }
+        // 👍 বাকি ৪ আঙুল (index, middle, ring, pinky) মুঠোয় বন্ধ, শুধু থাম্ব উপরে তোলা = লাইট কন্ট্রোল মোড
+        // থাম্ব-ইনডেক্স ফাঁক বড় → লাইট উজ্জ্বল (ON), ফাঁক ছোট → লাইট বন্ধ (OFF), মাঝামাঝি → কম উজ্জ্বল
+        if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && isThumbUp) {
+            const lightValue = getDistanceValue(landmarks);
+            updateLightFromGesture(lightValue);
+        }
+        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
+            sendCommand("F"); // ৪ আঙুল = সামনে
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
-            sendCommand("S"); // মুষ্টিবদ্ধ = স্টপ
+            sendCommand("S"); // থাম্বও গুটানো, পুরোপুরি মুষ্টিবদ্ধ = স্টপ
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
             sendCommand("B"); // শুধু পিংকি = পিছনে
