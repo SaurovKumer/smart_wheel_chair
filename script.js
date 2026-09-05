@@ -236,16 +236,16 @@ function onResults(results) {
             const lightValue = getDistanceValue(landmarks);
             updateLightFromGesture(lightValue);
         }
-        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp) { 
+        else if (isIndexUp && isMiddleUp && isRingUp && isPinkyUp && isThumbUp) { 
             sendCommand("F"); // ৪ আঙুল = সামনে
         } 
-        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+        else if (!isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && !isThumbUp) { 
             sendCommand("S"); // থাম্বও গুটানো, পুরোপুরি মুষ্টিবদ্ধ = স্টপ
         } 
         else if (!isIndexUp && !isMiddleUp && !isRingUp && isPinkyUp) { 
             sendCommand("B"); // শুধু পিংকি = পিছনে
         } 
-        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) { 
+        else if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp && !isThumbUp) { 
             sendCommand("L"); // শুধু তর্জনী = বামে
         } 
         else if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) { 
